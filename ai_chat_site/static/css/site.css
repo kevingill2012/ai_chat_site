@@ -53,13 +53,15 @@ body {
 .btn-outline-danger { border-color: #ff8ba7; color: #ff5c8a; }
 .btn-outline-danger:hover { background: #ff8ba7; color: #111827; border-color: #ff8ba7; }
 
-.chat-conv-list { overflow: auto; }
+.chat-sidebar { display: flex; flex-direction: column; }
+.chat-conv-list { overflow: auto; flex: 1 1 auto; }
+.token-footer { margin-top: auto; }
 .chat-conv-list .list-group-item { cursor: pointer; border: 0; border-top: 1px solid var(--border); background: transparent; }
 .chat-conv-list .list-group-item.active { background: linear-gradient(135deg, rgba(255, 122, 162, 0.25) 0%, rgba(78, 205, 196, 0.15) 100%); color: #0b1220; }
 .chat-conv-action { opacity: 0.7; cursor: pointer; }
 .chat-conv-action:hover { opacity: 1; }
 
-.token-widget { border: 1px solid var(--border); border-radius: 16px; padding: 12px; background: rgba(255,255,255,0.85); }
+.token-widget { border: 1px solid var(--border); border-radius: 16px; padding: 12px; background: rgba(255,255,255,0.85); box-shadow: 0 10px 24px rgba(255, 122, 162, 0.12); }
 .token-widget-head { font-weight: 600; font-family: "Syne", "Space Grotesk", sans-serif; color: #1f2937; margin-bottom: 8px; }
 .token-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .token-item { border: 1px dashed rgba(255, 122, 162, 0.35); border-radius: 12px; padding: 8px; background: rgba(255, 240, 246, 0.7); }
