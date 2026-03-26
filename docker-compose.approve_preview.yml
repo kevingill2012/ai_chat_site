@@ -1,0 +1,7 @@
+services:
+  ai-chat-site:
+    # 临时复用现有的 approve.awardprospect.com ingress（指向 127.0.0.1:18888）
+    # 把 18888 转发到容器 49193，方便你在不改 Cloudflare Tunnel 配置的情况下先预览站点。
+    ports:
+      - "127.0.0.1:18888:49193"
+

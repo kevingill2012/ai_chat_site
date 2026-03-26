@@ -1,0 +1,12 @@
+services:
+  ai-chat-site:
+    networks:
+      cf_tunnel:
+        aliases:
+          - ai-chat-site
+
+networks:
+  cf_tunnel:
+    external: true
+    name: cf_tunnel
+

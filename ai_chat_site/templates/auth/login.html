@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}登录{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-6 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h5 class="mb-3">登录</h5>
+        <form method="post" action="/auth/login">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <div class="mb-3">
+            <label class="form-label small text-muted">用户名 / 邮箱</label>
+            <input class="form-control" name="identifier" autocomplete="username" required autofocus />
+          </div>
+          <div class="mb-3">
+            <label class="form-label small text-muted">密码</label>
+            <input class="form-control" type="password" name="password" autocomplete="current-password" required />
+          </div>
+          {% if turnstile_site_key %}
+          <div class="mb-3">
+            <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div>
+          </div>
+          {% endif %}
+          <div class="mb-3 form-check">
+            <input class="form-check-input" type="checkbox" id="remember" name="remember" />
+            <label class="form-check-label small" for="remember">保持登录</label>
+          </div>
+          <button class="btn btn-primary w-100" type="submit">Sign In</button>
+        </form>
+        <div class="mt-3 small">
+          还没有账号？<a href="/auth/register">注册</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+  {% if turnstile_site_key %}
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  {% endif %}
+{% endblock %}
