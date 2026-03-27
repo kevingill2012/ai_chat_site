@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 
 from flask import Flask, redirect, request, url_for, abort
 from flask_login import LoginManager
@@ -58,6 +59,17 @@ def create_app() -> Flask:
             if request.headers.get("X-Forwarded-Proto", "").lower() != "https":
                 return redirect(request.url.replace("http://", "https://", 1), code=302)
 
+        if request.path.startswith("/api/") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            origin = (request.headers.get("Origin") or "").strip()
+            referer = (request.headers.get("Referer") or "").strip()
+            origin_host = ""
+            if origin:
+                origin_host = urlparse(origin).hostname or ""
+            elif referer:
+                origin_host = urlparse(referer).hostname or ""
+            if not origin_host or not is_allowed_host(origin_host.lower(), app.config.get("ALLOWED_HOSTS", [])):
+                abort(403)
+
     @app.after_request
     def _security_headers(resp):
         return apply_security_headers(resp, app.config)
@@ -83,6 +95,7 @@ def create_app() -> Flask:
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(chat_bp)
+    csrf.exempt(chat_bp)
 
     # Ensure JSON CSRF header names are accepted (Flask-WTF default includes these)
     _ = csrf

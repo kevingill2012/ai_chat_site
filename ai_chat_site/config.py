@@ -49,7 +49,7 @@ class Config:
     MAX_CONTENT_LENGTH: int = 64 * 1024
 
     WTF_CSRF_ENABLED: bool = True
-    WTF_CSRF_TIME_LIMIT: int | None = 3600 * 6
+    WTF_CSRF_TIME_LIMIT: int | None = 3600 * 24
 
     @staticmethod
     def from_env() -> dict:
@@ -86,4 +86,5 @@ class Config:
             "LOCKOUT_MAX_FAILS": int(os.getenv("LOCKOUT_MAX_FAILS") or "8"),
             "LOCKOUT_WINDOW_SECONDS": int(os.getenv("LOCKOUT_WINDOW_SECONDS") or "900"),
             "LOCKOUT_SECONDS": int(os.getenv("LOCKOUT_SECONDS") or "1800"),
+            "WTF_CSRF_TIME_LIMIT": int(os.getenv("WTF_CSRF_TIME_LIMIT") or str(3600 * 24)),
         }

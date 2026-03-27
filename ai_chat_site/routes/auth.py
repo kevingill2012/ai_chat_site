@@ -168,7 +168,7 @@ def _consume_invite(reservation_token: str, user_id: int):
 
 
 @bp.route("/register", methods=["GET", "POST"])
-@limiter.limit("3 per minute")
+@limiter.limit("10 per minute")
 def register():
     if current_user.is_authenticated:
         return redirect(url_for("chat.index"))
@@ -219,7 +219,7 @@ def register():
 
 
 @bp.route("/login", methods=["GET", "POST"])
-@limiter.limit("5 per minute")
+@limiter.limit("10 per minute")
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("chat.index"))
