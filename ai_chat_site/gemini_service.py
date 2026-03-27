@@ -52,6 +52,7 @@ def generate_reply(
     model_name: str,
     user_message: str,
     history: list[dict],
+    attachments: list[dict] | None = None,
     memory_snippets: list[str] | None = None,
 ) -> GeminiReply:
     client = genai.Client(api_key=api_key)
@@ -74,7 +75,25 @@ def generate_reply(
 
         contents.append(types.Content(role=role, parts=[types.Part.from_text(text=text)]))
 
-    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=user_message)]))
+    attach_parts: list[types.Part] = []
+    for att in attachments or []:
+        if not isinstance(att, dict):
+            continue
+        if att.get("type") == "text":
+            text = att.get("text")
+            if isinstance(text, str) and text.strip():
+                attach_parts.append(types.Part.from_text(text=text))
+        elif att.get("type") == "image":
+            data = att.get("data")
+            mime = att.get("mime_type") or "image/png"
+            if isinstance(data, (bytes, bytearray)):
+                attach_parts.append(types.Part.from_bytes(data=bytes(data), mime_type=str(mime)))
+
+    if attach_parts:
+        contents.append(types.Content(role="user", parts=attach_parts))
+
+    if user_message:
+        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=user_message)]))
 
     config = None
     if memory_snippets:

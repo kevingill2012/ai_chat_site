@@ -3,9 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import os
+import io
+import mimetypes
+from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 from flask_login import login_required, current_user
+from werkzeug.utils import secure_filename
 
 from .. import limiter
 from ..db import get_db
@@ -14,6 +18,45 @@ from ..memory_service import recall, remember_message
 
 
 bp = Blueprint("chat", __name__)
+
+def _allowed_exts() -> set[str]:
+    return {str(x).lower().strip().lstrip(".") for x in (current_app.config.get("UPLOAD_ALLOWED_EXT") or []) if str(x).strip()}
+
+def _max_upload_bytes() -> int:
+    return int(current_app.config.get("MAX_UPLOAD_BYTES") or 0)
+
+def _upload_dir() -> str:
+    return str(current_app.config.get("UPLOAD_DIR") or "/data/uploads")
+
+def _is_image_mime(mime: str | None) -> bool:
+    return bool(mime) and str(mime).lower().startswith("image/")
+
+def _extract_text_from_bytes(data: bytes, filename: str, mime: str | None) -> str:
+    ext = os.path.splitext(filename or "")[1].lower().lstrip(".")
+    if mime and str(mime).lower().startswith("text/"):
+        return data.decode("utf-8", errors="ignore")
+    if ext in {"txt", "md", "csv", "json", "log"}:
+        return data.decode("utf-8", errors="ignore")
+    if ext == "pdf":
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(io.BytesIO(data))
+            pages = []
+            for p in reader.pages:
+                pages.append(p.extract_text() or "")
+            return "\n".join([t for t in pages if t.strip()])
+        except Exception:
+            return ""
+    if ext == "docx":
+        try:
+            from docx import Document
+
+            doc = Document(io.BytesIO(data))
+            return "\n".join([p.text for p in doc.paragraphs if p.text and p.text.strip()])
+        except Exception:
+            return ""
+    return ""
 
 def _now_boundaries_utc() -> tuple[str, str]:
     tz_name = (current_app.config.get("TIMEZONE") or None) or (current_app.config.get("TZ") or None) or (os.getenv("TZ") or None) or "Asia/Shanghai"
@@ -101,6 +144,7 @@ def index():
         conversations=conversations,
         current_conversation_id=conv_id,
         memory_enabled_default=bool(current_app.config.get("MEMORY_ENABLED_DEFAULT", True)),
+        upload_max_files=int(current_app.config.get("UPLOAD_MAX_FILES") or 5),
     )
 
 
@@ -143,6 +187,82 @@ def api_stats():
             "total_tokens": _sum_tokens(int(current_user.id)),
         }
     )
+
+@bp.post("/api/upload")
+@login_required
+@limiter.limit("20 per minute")
+def api_upload():
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"error": "未找到文件"}), 400
+
+    filename = secure_filename(file.filename)
+    if not filename:
+        return jsonify({"error": "文件名无效"}), 400
+
+    ext = os.path.splitext(filename)[1].lower().lstrip(".")
+    allowed = _allowed_exts()
+    if allowed and ext not in allowed:
+        return jsonify({"error": "不支持的文件类型"}), 400
+
+    data = file.read()
+    if not data:
+        return jsonify({"error": "文件为空"}), 400
+
+    max_bytes = _max_upload_bytes()
+    if max_bytes and len(data) > max_bytes:
+        return jsonify({"error": "文件过大"}), 413
+
+    mime = file.mimetype or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    is_image = _is_image_mime(mime)
+    extracted_text = "" if is_image else _extract_text_from_bytes(data, filename, mime)
+    if extracted_text and len(extracted_text) > 200000:
+        extracted_text = extracted_text[:200000]
+
+    user_dir = Path(_upload_dir()) / str(int(current_user.id))
+    user_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = f"{int(datetime.utcnow().timestamp())}_{filename}"
+    path = user_dir / safe_name
+    path.write_bytes(data)
+
+    db = get_db()
+    cur = db.execute(
+        """
+        INSERT INTO uploaded_files(user_id, original_name, storage_path, mime_type, size_bytes, extracted_text)
+        VALUES(?,?,?,?,?,?)
+        """,
+        (int(current_user.id), filename, str(path), str(mime), int(len(data)), extracted_text),
+    )
+    db.commit()
+    file_id = int(cur.lastrowid)
+    return jsonify(
+        {
+            "id": file_id,
+            "name": filename,
+            "size": int(len(data)),
+            "mime": str(mime),
+            "is_image": bool(is_image),
+        }
+    )
+
+@bp.delete("/api/upload/<int:file_id>")
+@login_required
+@limiter.limit("30 per minute")
+def api_upload_delete(file_id: int):
+    db = get_db()
+    row = db.execute(
+        "SELECT storage_path FROM uploaded_files WHERE id=? AND user_id=?",
+        (int(file_id), int(current_user.id)),
+    ).fetchone()
+    if not row:
+        return jsonify({"error": "文件不存在"}), 404
+    try:
+        Path(row["storage_path"]).unlink(missing_ok=True)
+    except Exception:
+        pass
+    db.execute("DELETE FROM uploaded_files WHERE id=? AND user_id=?", (int(file_id), int(current_user.id)))
+    db.commit()
+    return jsonify({"ok": True})
 
 
 @bp.post("/api/conversations")
@@ -228,8 +348,16 @@ def api_conversation_messages(conversation_id: int):
 def api_chat():
     data = request.get_json(silent=True) or {}
     msg = (data.get("message") or "").strip()
-    if not msg:
-        return jsonify({"error": "请输入内容"}), 400
+    file_ids = data.get("file_ids") or []
+    if not isinstance(file_ids, list):
+        file_ids = []
+    file_ids = [int(x) for x in file_ids if str(x).isdigit()]
+    file_ids = list(dict.fromkeys(file_ids))
+    max_files = int(current_app.config.get("UPLOAD_MAX_FILES") or 5)
+    if max_files and len(file_ids) > max_files:
+        return jsonify({"error": f"最多上传 {max_files} 个文件"}), 400
+    if not msg and not file_ids:
+        return jsonify({"error": "请输入内容或上传文件"}), 400
     if len(msg) > 4000:
         return jsonify({"error": "内容过长（最大 4000 字符）"}), 400
 
@@ -245,9 +373,46 @@ def api_chat():
         model_name = current_app.config.get("GEMINI_MODEL", "gemini-2.5-flash")
 
     db = get_db()
+    attachments: list[dict] = []
+    file_names: list[str] = []
+    if file_ids:
+        placeholders = ",".join(["?"] * len(file_ids))
+        rows = db.execute(
+            f"""
+            SELECT id, original_name, storage_path, mime_type, size_bytes, extracted_text
+            FROM uploaded_files
+            WHERE user_id=? AND id IN ({placeholders})
+            """,
+            (int(current_user.id), *file_ids),
+        ).fetchall()
+        for r in rows:
+            name = str(r["original_name"] or "")
+            mime = str(r["mime_type"] or "")
+            file_names.append(name or "附件")
+            if _is_image_mime(mime):
+                try:
+                    data_bytes = Path(r["storage_path"]).read_bytes()
+                    attachments.append({"type": "image", "mime_type": mime, "data": data_bytes})
+                except Exception:
+                    continue
+            else:
+                text = str(r["extracted_text"] or "")
+                if text:
+                    if len(text) > 50000:
+                        text = text[:50000] + "…"
+                    attachments.append({"type": "text", "text": f"文件：{name}\n{text}"})
+
+    if not msg and attachments:
+        msg = "请分析我上传的文件。"
+
+    msg_for_db = msg
+    if file_names:
+        shown = "、".join(file_names[:6])
+        msg_for_db = (msg_for_db or "（上传了附件）") + f"\n[附件] {shown}"
+
     cur_user = db.execute(
         "INSERT INTO chat_messages(user_id, conversation_id, role, content, model_name) VALUES(?,?,?,?,?)",
-        (current_user.id, conversation_id, "user", msg, model_name),
+        (current_user.id, conversation_id, "user", msg_for_db, model_name),
     )
     db.commit()
     user_message_id = int(cur_user.lastrowid or 0)
@@ -289,6 +454,7 @@ def api_chat():
             model_name=model_name,
             user_message=msg,
             history=history,
+            attachments=attachments,
             memory_snippets=memory_snippets,
         )
     except Exception:

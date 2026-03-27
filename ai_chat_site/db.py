@@ -156,6 +156,23 @@ def ensure_tables(db: sqlite3.Connection):
     )
     db.execute("CREATE INDEX IF NOT EXISTS idx_memory_items_user_id_id ON memory_items(user_id, id)")
 
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS uploaded_files (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          original_name TEXT NOT NULL,
+          storage_path TEXT NOT NULL,
+          mime_type TEXT,
+          size_bytes INTEGER NOT NULL,
+          extracted_text TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """
+    )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_uploaded_files_user_id_id ON uploaded_files(user_id, id)")
+
     # Backfill: ensure each existing user has at least one conversation and old messages are linked.
     user_rows = db.execute("SELECT id FROM users").fetchall()
     for r in user_rows:

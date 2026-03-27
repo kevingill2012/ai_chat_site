@@ -116,6 +116,10 @@
   const conversationList = document.getElementById("conversationList");
   const chatBox = document.getElementById("chatBox");
   const hint = document.getElementById("hint");
+  const fileHint = document.getElementById("fileHint");
+  const btnAttach = document.getElementById("btnAttach");
+  const fileInput = document.getElementById("fileInput");
+  const fileList = document.getElementById("fileList");
   const modelSelect = document.getElementById("modelSelect");
   const memoryToggle = document.getElementById("memoryToggle");
   const tokenStats = document.getElementById("tokenStats");
@@ -128,6 +132,7 @@
   let activeConversationId = parseInt(app.dataset.currentConversationId || "0", 10) || 0;
   let activeConversationTotalTokens = 0;
   const defaultModel = app.dataset.defaultModel || "gemini-2.5-flash";
+  const maxFiles = parseInt(app.dataset.maxFiles || "5", 10) || 5;
   const allowedModels = (() => {
     try {
       return JSON.parse(app.dataset.allowedModels || "[]");
@@ -135,6 +140,7 @@
       return [];
     }
   })();
+  let selectedFiles = [];
 
   function pickGreeting() {
     return GREETINGS[Math.floor(Math.random() * GREETINGS.length)] || "开始提问吧。";
@@ -168,6 +174,61 @@
     if (tokWeek) tokWeek.textContent = String(week ?? 0);
     if (tokMonth) tokMonth.textContent = String(month ?? 0);
     if (tokTotal) tokTotal.textContent = String(total ?? 0);
+  }
+
+  function formatSize(bytes) {
+    const n = Number(bytes || 0);
+    if (n < 1024) return `${n}B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+  }
+
+  function renderFiles() {
+    if (!fileList) return;
+    fileList.innerHTML = "";
+    for (const f of selectedFiles) {
+      const chip = document.createElement("div");
+      chip.className = "file-chip";
+      chip.innerHTML = `<span class="name">${f.name}</span><span class="meta">${formatSize(f.size)}</span><button class="remove" title="移除">×</button>`;
+      chip.querySelector(".remove")?.addEventListener("click", async () => {
+        try {
+          await fetch(`/api/upload/${encodeURIComponent(f.id)}`, { method: "DELETE" });
+        } catch (_e) {}
+        selectedFiles = selectedFiles.filter((x) => x.id !== f.id);
+        renderFiles();
+      });
+      fileList.appendChild(chip);
+    }
+  }
+
+  async function uploadFile(file) {
+    if (!file) return;
+    if (selectedFiles.length >= maxFiles) {
+      if (fileHint) fileHint.textContent = `最多上传 ${maxFiles} 个文件`;
+      return;
+    }
+    if (fileHint) fileHint.textContent = `正在上传：${file.name}`;
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (fileHint) fileHint.textContent = data.error || "上传失败";
+        return;
+      }
+      selectedFiles.push({
+        id: data.id,
+        name: data.name || file.name,
+        size: data.size || file.size || 0,
+        mime: data.mime || "",
+        isImage: !!data.is_image,
+      });
+      if (fileHint) fileHint.textContent = `已上传 ${selectedFiles.length} 个文件`;
+      renderFiles();
+    } catch (_e) {
+      if (fileHint) fileHint.textContent = "上传失败，请重试";
+    }
   }
 
   function pickWaitJoke() {
@@ -263,6 +324,9 @@
     hint.textContent = "";
     chatBox.innerHTML = "";
     setTokenStats("");
+    selectedFiles = [];
+    renderFiles();
+    if (fileHint) fileHint.textContent = "";
     try {
       const msgs = await fetchMessages(activeConversationId);
       if (!msgs.length) {
@@ -282,9 +346,13 @@
 
   async function sendMessage() {
     const text = (input.value || "").trim();
-    if (!text) return;
+    if (!text && !selectedFiles.length) return;
 
-    append("user", text);
+    if (text) {
+      append("user", text);
+    } else {
+      append("user", "（上传了文件，正在分析…）");
+    }
     input.value = "";
     setBusy(true);
 
@@ -303,6 +371,7 @@
           conversation_id: activeConversationId,
           model: getSelectedModel(),
           memory_enabled: !!memoryToggle?.checked,
+          file_ids: selectedFiles.map((x) => x.id),
         }),
       });
 
@@ -314,6 +383,9 @@
         if (data.conversation_id) activeConversationId = data.conversation_id;
         fetchConversations().catch(() => {});
         refreshStats().catch(() => {});
+        selectedFiles = [];
+        renderFiles();
+        if (fileHint) fileHint.textContent = "";
       }
     } catch (_e) {
       loadingNode.textContent = "连接失败，请稍后重试。";
@@ -368,6 +440,9 @@
       await fetchConversations();
       await loadActiveConversation();
       await refreshStats();
+      selectedFiles = [];
+      renderFiles();
+      if (fileHint) fileHint.textContent = "";
     } catch (e) {
       hint.textContent = e?.message || "新建失败";
     } finally {
@@ -424,6 +499,12 @@
   });
   btnClear?.addEventListener("click", clearChat);
   btnNewConversation?.addEventListener("click", newConversation);
+  btnAttach?.addEventListener("click", () => fileInput?.click());
+  fileInput?.addEventListener("change", () => {
+    const files = Array.from(fileInput.files || []);
+    fileInput.value = "";
+    for (const f of files) uploadFile(f);
+  });
 
   conversationList?.addEventListener("click", (e) => {
     const target = e.target;

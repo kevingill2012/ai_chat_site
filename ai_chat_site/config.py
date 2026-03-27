@@ -46,7 +46,12 @@ class Config:
     REMEMBER_COOKIE_SAMESITE: str = "Lax"
     REMEMBER_COOKIE_SECURE: bool = True
 
-    MAX_CONTENT_LENGTH: int = 64 * 1024
+    MAX_CONTENT_LENGTH: int = 16 * 1024 * 1024
+
+    UPLOAD_DIR: str = "/data/uploads"
+    MAX_UPLOAD_BYTES: int = 8 * 1024 * 1024
+    UPLOAD_ALLOWED_EXT: list[str] = None  # type: ignore[assignment]
+    UPLOAD_MAX_FILES: int = 5
 
     WTF_CSRF_ENABLED: bool = True
     WTF_CSRF_TIME_LIMIT: int | None = 3600 * 24
@@ -68,6 +73,20 @@ class Config:
         memory_top_k = int(os.getenv("MEMORY_TOP_K") or "5")
         memory_max_items = int(os.getenv("MEMORY_MAX_ITEMS") or "2000")
 
+        upload_allowed_ext = _split_csv(os.getenv("UPLOAD_ALLOWED_EXT")) or [
+            "txt",
+            "md",
+            "csv",
+            "json",
+            "log",
+            "pdf",
+            "docx",
+            "png",
+            "jpg",
+            "jpeg",
+            "webp",
+        ]
+
         return {
             "SECRET_KEY": secret,
             "DATABASE_PATH": db_path,
@@ -87,4 +106,9 @@ class Config:
             "LOCKOUT_WINDOW_SECONDS": int(os.getenv("LOCKOUT_WINDOW_SECONDS") or "900"),
             "LOCKOUT_SECONDS": int(os.getenv("LOCKOUT_SECONDS") or "1800"),
             "WTF_CSRF_TIME_LIMIT": int(os.getenv("WTF_CSRF_TIME_LIMIT") or str(3600 * 24)),
+            "MAX_CONTENT_LENGTH": int(os.getenv("MAX_CONTENT_LENGTH") or str(16 * 1024 * 1024)),
+            "UPLOAD_DIR": (os.getenv("UPLOAD_DIR") or "/data/uploads").strip() or "/data/uploads",
+            "MAX_UPLOAD_BYTES": int(os.getenv("MAX_UPLOAD_BYTES") or str(8 * 1024 * 1024)),
+            "UPLOAD_ALLOWED_EXT": upload_allowed_ext,
+            "UPLOAD_MAX_FILES": int(os.getenv("UPLOAD_MAX_FILES") or "5"),
         }
